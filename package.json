@@ -1,0 +1,12 @@
+{
+  "name": "rocket-sim",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/**/*.test.cjs",
+    "test:coverage": "c8 --reporter=text --reporter=text-summary --reporter=lcov node --test tests/**/*.test.cjs"
+  },
+  "devDependencies": {
+    "c8": "^10.1.3"
+  }
+}

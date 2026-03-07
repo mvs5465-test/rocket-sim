@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rocket Sim</title>
+    <style>
+      :root {
+        --bg-ui: rgba(255, 253, 244, 0.9);
+        --bg-ui-strong: #fff9e8;
+        --border-ui: rgba(78, 84, 95, 0.35);
+        --text-main: #243041;
+        --text-muted: #4f617b;
+        --accent: #2f7ea1;
+        --accent-soft: #caebf6;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+        color: var(--text-main);
+      }
+
+      #app {
+        position: relative;
+        width: 100%;
+        height: 100%;
+      }
+
+      #game-canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+
+      .parts-panel {
+        position: absolute;
+        top: 16px;
+        left: 16px;
+        width: 192px;
+        padding: 12px;
+        border: 1px solid var(--border-ui);
+        border-radius: 12px;
+        background: var(--bg-ui);
+        backdrop-filter: blur(3px);
+        box-shadow: 0 8px 20px rgba(34, 49, 63, 0.12);
+      }
+
+      .parts-panel h1 {
+        margin: 0 0 10px;
+        font-size: 18px;
+        font-weight: 600;
+      }
+
+      .parts-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .mode-section.hidden {
+        display: none;
+      }
+
+      .part-button {
+        border: 1px solid var(--border-ui);
+        border-radius: 8px;
+        background: var(--bg-ui-strong);
+        color: var(--text-main);
+        font-size: 14px;
+        font-weight: 600;
+        text-align: left;
+        padding: 8px 10px;
+        cursor: pointer;
+        transition: background-color 120ms ease, border-color 120ms ease, transform 120ms ease;
+      }
+
+      .part-button:hover {
+        border-color: var(--accent);
+        transform: translateY(-1px);
+      }
+
+      .part-button.selected {
+        background: var(--accent-soft);
+        border-color: var(--accent);
+      }
+
+      .selection-label {
+        margin: 12px 0 4px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-main);
+      }
+
+      .todo-label {
+        margin: 0;
+        font-size: 12px;
+        line-height: 1.35;
+        color: var(--text-muted);
+      }
+
+      .action-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin: 10px 0 8px;
+      }
+
+      .action-button {
+        border: 1px solid var(--border-ui);
+        border-radius: 8px;
+        background: #edf6ec;
+        color: #21432a;
+        padding: 8px 10px;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .action-button.secondary {
+        background: #f0f1f4;
+        color: #334055;
+      }
+
+      .action-button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .part-tooltip {
+        position: fixed;
+        width: 200px;
+        padding: 10px;
+        border: 1px solid var(--border-ui);
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.96);
+        box-shadow: 0 8px 20px rgba(34, 49, 63, 0.16);
+        z-index: 20;
+      }
+
+      .part-tooltip h2 {
+        margin: 0 0 6px;
+        font-size: 15px;
+        text-transform: capitalize;
+      }
+
+      .tooltip-meta {
+        margin: 0 0 10px;
+        font-size: 12px;
+        line-height: 1.35;
+        color: var(--text-muted);
+      }
+
+      .delete-button {
+        width: 100%;
+        border: 1px solid #c58d8d;
+        border-radius: 8px;
+        background: #ffecec;
+        color: #6d2d2d;
+        padding: 7px 8px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .delete-button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .hidden {
+        display: none;
+      }
+
+      .hud-panel {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        width: 220px;
+        padding: 10px 12px;
+        border: 1px solid var(--border-ui);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.9);
+        box-shadow: 0 8px 20px rgba(34, 49, 63, 0.12);
+        font-size: 12px;
+        z-index: 10;
+      }
+
+      .hud-panel h2 {
+        margin: 0 0 8px;
+        font-size: 14px;
+      }
+
+      .hud-panel p {
+        margin: 4px 0;
+        color: var(--text-muted);
+      }
+
+      .flight-hint {
+        margin: 0 0 10px;
+        font-size: 12px;
+        line-height: 1.35;
+        color: var(--text-muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="game-canvas" aria-label="2D rocket assembly scene"></canvas>
+      <aside class="parts-panel" aria-label="Rocket parts palette">
+        <h1>Parts</h1>
+        <div id="build-mode-panel" class="mode-section">
+          <div class="parts-list">
+            <button class="part-button" data-part="engine">Engine</button>
+            <button class="part-button" data-part="fuel_tank">Fuel Tank</button>
+            <button class="part-button" data-part="nosecone">Nosecone</button>
+            <button class="part-button" data-part="booster">Booster</button>
+          </div>
+          <div class="action-row">
+            <button id="launch-button" class="action-button">Launch</button>
+          </div>
+          <p id="selection-label" class="selection-label">Selected: none</p>
+          <p id="status-label" class="todo-label">Select a part, then click a highlighted snap point to place.</p>
+        </div>
+
+        <div id="flight-mode-panel" class="mode-section hidden">
+          <p class="flight-hint">Flight mode active. Build tools hidden.</p>
+          <button id="recover-button" class="action-button secondary">Recover</button>
+        </div>
+      </aside>
+      <aside id="hud-panel" class="hud-panel hidden" aria-label="Flight HUD">
+        <h2>Flight</h2>
+        <p id="hud-altitude">Altitude: 0 m</p>
+        <p id="hud-speed">Speed: 0 m/s</p>
+        <p id="hud-fuel">Fuel: 0%</p>
+        <p id="hud-mass">Mass: 0 t</p>
+        <p id="hud-gravity">Gravity: 0 m/s²</p>
+        <p id="hud-twr">TWR: 0.00</p>
+        <p>Controls: Hold <strong>Space</strong> to fire, steer with <strong>A/D</strong>.</p>
+      </aside>
+    </div>
+    <div id="part-tooltip" class="part-tooltip hidden" role="dialog" aria-label="Part details">
+      <h2 id="tooltip-title"></h2>
+      <p id="tooltip-meta" class="tooltip-meta"></p>
+      <button id="delete-part-button" class="delete-button">Delete Part</button>
+    </div>
+    <script src="./src/js/constants.js" defer></script>
+    <script src="./src/js/renderer.js" defer></script>
+    <script src="./src/js/launch-pad.js" defer></script>
+    <script src="./src/js/rocket-stack.js" defer></script>
+    <script src="./src/js/build-scene.js" defer></script>
+    <script src="./src/js/parts-palette.js" defer></script>
+    <script src="./src/js/flight-model.js" defer></script>
+    <script src="./src/js/camera-model.js" defer></script>
+    <script src="./src/js/game.js" defer></script>
+    <script src="./src/js/main.js" defer></script>
+  </body>
+</html>
