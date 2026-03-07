@@ -17,13 +17,17 @@
 
       for (let i = 0; i < partTypes.length; i += 1) {
         const type = partTypes[i];
+        const prev = i > 0 ? partTypes[i - 1] : null;
         if (!PART_DEFS[type]) {
           return false;
         }
         if (i === 0 && type !== "engine") {
           return false;
         }
-        if (i > 0 && type === "engine") {
+        if (type === "engine" && i > 0 && prev !== "stage_separator") {
+          return false;
+        }
+        if (type === "stage_separator" && (i === 0 || prev !== "fuel_tank")) {
           return false;
         }
         if (i < partTypes.length - 1 && type === "nosecone") {
@@ -35,6 +39,107 @@
 
     getCoreTypes() {
       return this.coreParts.map((part) => part.type);
+    }
+
+    normalizeStage(stage) {
+      const parsed = Number.parseInt(stage, 10);
+      if (!Number.isFinite(parsed)) {
+        return 1;
+      }
+      return Math.max(1, Math.min(9, parsed));
+    }
+
+    isStageConfigurable(partRef) {
+      if (!partRef) {
+        return false;
+      }
+      if (partRef.kind === "booster") {
+        return partRef.index >= 0 && partRef.index < this.boosters.length;
+      }
+      if (partRef.kind === "core") {
+        const part = this.coreParts[partRef.index];
+        return Boolean(part && part.type === "engine");
+      }
+      return false;
+    }
+
+    getAutoCoreStageByIndex(index) {
+      let stage = 1;
+      for (let i = 0; i < index && i < this.coreParts.length; i += 1) {
+        if (this.coreParts[i].type === "stage_separator") {
+          stage += 1;
+        }
+      }
+      return stage;
+    }
+
+    syncAutoStages() {
+      for (let i = 0; i < this.coreParts.length; i += 1) {
+        const part = this.coreParts[i];
+        const autoStage = this.getAutoCoreStageByIndex(i);
+        if (part.type === "engine") {
+          if (!part.stageManual) {
+            part.stage = autoStage;
+          } else {
+            part.stage = this.normalizeStage(part.stage);
+          }
+          continue;
+        }
+        part.stage = autoStage;
+      }
+      for (const booster of this.boosters) {
+        const parent = this.coreParts[booster.coreIndex];
+        const parentStage = parent ? this.normalizeStage(parent.stage) : 1;
+        if (!booster.stageManual) {
+          booster.stage = parentStage;
+        } else {
+          booster.stage = this.normalizeStage(booster.stage);
+        }
+      }
+    }
+
+    getPartStage(partRef) {
+      if (!partRef) {
+        return 1;
+      }
+      if (partRef.kind === "core") {
+        const part = this.coreParts[partRef.index];
+        return part ? this.normalizeStage(part.stage) : 1;
+      }
+      if (partRef.kind === "booster") {
+        const booster = this.boosters[partRef.index];
+        return booster ? this.normalizeStage(booster.stage) : 1;
+      }
+      return 1;
+    }
+
+    setPartStage(partRef, stage) {
+      const next = this.normalizeStage(stage);
+      if (!this.isStageConfigurable(partRef)) {
+        return false;
+      }
+      if (!partRef) {
+        return false;
+      }
+      if (partRef.kind === "core") {
+        const part = this.coreParts[partRef.index];
+        if (!part) {
+          return false;
+        }
+        part.stage = next;
+        part.stageManual = true;
+        return true;
+      }
+      if (partRef.kind === "booster") {
+        const booster = this.boosters[partRef.index];
+        if (!booster) {
+          return false;
+        }
+        booster.stage = next;
+        booster.stageManual = true;
+        return true;
+      }
+      return false;
     }
 
     getTopY(anchorY) {
@@ -52,6 +157,7 @@
           kind: "core",
           index: i,
           type: part.type,
+          stage: this.normalizeStage(part.stage),
           x: anchorX - partDef.width / 2,
           y: topY,
           width: partDef.width,
@@ -121,7 +227,22 @@
     }
 
     isLaunchReady() {
-      return this.hasCorePart("engine");
+      if (!this.hasCorePart("engine")) {
+        return false;
+      }
+      const topType = this.coreParts.length > 0 ? this.coreParts[this.coreParts.length - 1].type : null;
+      if (topType === "stage_separator") {
+        return false;
+      }
+      for (let i = 0; i < this.coreParts.length; i += 1) {
+        if (this.coreParts[i].type !== "stage_separator") {
+          continue;
+        }
+        if (i >= this.coreParts.length - 1 || this.coreParts[i + 1].type !== "engine") {
+          return false;
+        }
+      }
+      return true;
     }
 
     getDryMass() {
@@ -142,7 +263,11 @@
       return 30 + tankCount * 45;
     }
 
-    getBoosterRects(anchorX, anchorY) {
+    getBoosterRects(anchorX, anchorY, options) {
+      const opts = options || {};
+      if (opts.includeBoosters === false) {
+        return [];
+      }
       const boosterDef = PART_DEFS.booster;
       const coreRects = this.getCorePartRects(anchorX, anchorY);
       const rects = [];
@@ -150,6 +275,12 @@
         const booster = this.boosters[i];
         const parent = coreRects.find((rect) => rect.index === booster.coreIndex);
         if (!parent) {
+          continue;
+        }
+        if (typeof opts.minStage === "number" && this.normalizeStage(booster.stage) < opts.minStage) {
+          continue;
+        }
+        if (Array.isArray(opts.excludedBoosterStages) && opts.excludedBoosterStages.includes(this.normalizeStage(booster.stage))) {
           continue;
         }
         const centerX = parent.centerX + (booster.side === "left" ? -this.boosterOffsetX : this.boosterOffsetX);
@@ -160,6 +291,7 @@
           type: "booster",
           coreIndex: booster.coreIndex,
           side: booster.side,
+          stage: this.normalizeStage(booster.stage),
           x: centerX - boosterDef.width / 2,
           y: topY,
           width: boosterDef.width,
@@ -171,27 +303,44 @@
       return rects;
     }
 
-    getAllPartRects(anchorX, anchorY) {
-      return [...this.getCorePartRects(anchorX, anchorY), ...this.getBoosterRects(anchorX, anchorY)];
+    getAllPartRects(anchorX, anchorY, options) {
+      const opts = options || {};
+      const coreRects = this.getCorePartRects(anchorX, anchorY).filter((rect) => {
+        if (typeof opts.minStage !== "number") {
+          return true;
+        }
+        return rect.stage >= opts.minStage;
+      });
+      return [...coreRects, ...this.getBoosterRects(anchorX, anchorY, options)];
     }
 
-    getVesselPartRects() {
-      return this.getAllPartRects(0, 0);
+    getVesselPartRects(options) {
+      return this.getAllPartRects(0, 0, options);
     }
 
-    getEngineNozzles() {
+    getEngineNozzles(options) {
+      const opts = options || {};
       const nozzles = [];
       const coreRects = this.getCorePartRects(0, 0);
-      const boosterRects = this.getBoosterRects(0, 0);
+      const boosterRects = this.getBoosterRects(0, 0, options);
 
       for (const rect of coreRects) {
         if (rect.type === "engine") {
-          nozzles.push({ kind: "main", x: rect.centerX, y: rect.y + rect.height });
+          const corePart = this.coreParts[rect.index];
+          nozzles.push({
+            kind: "main",
+            stage: this.normalizeStage(corePart && corePart.stage),
+            x: rect.centerX,
+            y: rect.y + rect.height
+          });
         }
       }
 
       for (const rect of boosterRects) {
-        nozzles.push({ kind: "booster", x: rect.centerX, y: rect.y + rect.height });
+        if (opts.activeBoosterStages && !opts.activeBoosterStages.includes(rect.stage)) {
+          continue;
+        }
+        nozzles.push({ kind: "booster", stage: rect.stage, x: rect.centerX, y: rect.y + rect.height });
       }
 
       return nozzles;
@@ -272,13 +421,27 @@
         if (this.hasBooster(target.coreIndex, target.side)) {
           return false;
         }
-        this.boosters.push({ coreIndex: target.coreIndex, side: target.side });
+        const parent = this.coreParts[target.coreIndex];
+        this.boosters.push({
+          coreIndex: target.coreIndex,
+          side: target.side,
+          stage: parent ? this.normalizeStage(parent.stage) : 1,
+          stageManual: false
+        });
+        this.syncAutoStages();
         return true;
       }
       if (target.kind !== "core") {
         return false;
       }
-      this.coreParts.push({ type: partType });
+      const coreIndex = this.coreParts.length;
+      const autoStage = this.getAutoCoreStageByIndex(coreIndex);
+      this.coreParts.push({
+        type: partType,
+        stage: autoStage,
+        stageManual: false
+      });
+      this.syncAutoStages();
       return true;
     }
 
@@ -309,6 +472,7 @@
       }
       if (partRef.kind === "booster") {
         this.boosters.splice(partRef.index, 1);
+        this.syncAutoStages();
         return true;
       }
 
@@ -317,8 +481,11 @@
         .filter((booster) => booster.coreIndex !== partRef.index)
         .map((booster) => ({
           coreIndex: booster.coreIndex > partRef.index ? booster.coreIndex - 1 : booster.coreIndex,
-          side: booster.side
+          side: booster.side,
+          stage: booster.stage,
+          stageManual: Boolean(booster.stageManual)
         }));
+      this.syncAutoStages();
       return true;
     }
 
@@ -345,6 +512,7 @@
       }
       const [moved] = this.coreParts.splice(fromIndex, 1);
       this.coreParts.splice(toIndex, 0, moved);
+      this.syncAutoStages();
       return true;
     }
 
@@ -366,6 +534,74 @@
       return bestIndex;
     }
 
+    getCompartmentByCoreIndex() {
+      const map = [];
+      let compartment = 0;
+      for (let i = 0; i < this.coreParts.length; i += 1) {
+        const part = this.coreParts[i];
+        map[i] = compartment;
+        if (part.type === "stage_separator") {
+          compartment += 1;
+        }
+      }
+      return map;
+    }
+
+    getFlightSetup() {
+      this.syncAutoStages();
+      const compartmentByCoreIndex = this.getCompartmentByCoreIndex();
+      const fuelCompartments = [];
+      const ensureCompartment = (idx) => {
+        while (fuelCompartments.length <= idx) {
+          fuelCompartments.push({ fuel: 0, capacity: 0 });
+        }
+      };
+
+      const mainEngines = [];
+      let firstEngineCompartment = 0;
+      for (let i = 0; i < this.coreParts.length; i += 1) {
+        const part = this.coreParts[i];
+        const compartment = compartmentByCoreIndex[i] || 0;
+        ensureCompartment(compartment);
+        if (part.type === "engine") {
+          if (mainEngines.length === 0) {
+            firstEngineCompartment = compartment;
+          }
+          mainEngines.push({ stage: this.normalizeStage(part.stage), compartment });
+        }
+        if (part.type === "fuel_tank") {
+          fuelCompartments[compartment].fuel += 45;
+          fuelCompartments[compartment].capacity += 45;
+        }
+      }
+
+      ensureCompartment(firstEngineCompartment);
+      fuelCompartments[firstEngineCompartment].fuel += 30;
+      fuelCompartments[firstEngineCompartment].capacity += 30;
+
+      const boosterUnits = this.boosters.map((booster) => ({
+        stage: this.normalizeStage(booster.stage),
+        dryMass: PART_DEFS.booster.mass
+      }));
+
+      const coreStageMasses = [];
+      for (let i = 0; i < this.coreParts.length; i += 1) {
+        const part = this.coreParts[i];
+        const stage = this.normalizeStage(part.stage);
+        while (coreStageMasses.length < stage) {
+          coreStageMasses.push(0);
+        }
+        coreStageMasses[stage - 1] += PART_DEFS[part.type].mass;
+      }
+
+      return {
+        mainEngines,
+        fuelCompartments,
+        boosterUnits,
+        coreStageMasses
+      };
+    }
+
     draw(ctx, anchorX, anchorY, selectedPartRef, showBoosterSlots, fuelState) {
       if (showBoosterSlots) {
         this.drawBoosterSlots(ctx, anchorX, anchorY);
@@ -375,22 +611,22 @@
       for (const rect of boosterRects) {
         const selected =
           selectedPartRef && selectedPartRef.kind === "booster" && selectedPartRef.index === rect.index;
-        this.drawPart(ctx, "booster", rect.centerX, rect.topY, PART_DEFS.booster, selected, 1, fuelState);
+        this.drawPart(ctx, "booster", rect.centerX, rect.topY, PART_DEFS.booster, rect.stage, selected, 1, fuelState);
       }
 
       for (const rect of this.getCorePartRects(anchorX, anchorY)) {
         const selected = selectedPartRef && selectedPartRef.kind === "core" && selectedPartRef.index === rect.index;
-        this.drawPart(ctx, rect.type, rect.centerX, rect.topY, PART_DEFS[rect.type], selected, 1, fuelState);
+        this.drawPart(ctx, rect.type, rect.centerX, rect.topY, PART_DEFS[rect.type], rect.stage, selected, 1, fuelState);
       }
     }
 
-    drawVessel(ctx, worldX, worldY, angle, fuelState) {
-      const vesselRects = this.getVesselPartRects();
+    drawVessel(ctx, worldX, worldY, angle, fuelState, options) {
+      const vesselRects = this.getVesselPartRects(options);
       ctx.save();
       ctx.translate(worldX, worldY);
       ctx.rotate(angle);
       for (const rect of vesselRects) {
-        this.drawPart(ctx, rect.type, rect.centerX, rect.topY, PART_DEFS[rect.type], false, 1, fuelState);
+        this.drawPart(ctx, rect.type, rect.centerX, rect.topY, PART_DEFS[rect.type], rect.stage, false, 1, fuelState);
       }
       ctx.restore();
     }
@@ -411,9 +647,10 @@
       }
     }
 
-    drawPart(ctx, partType, centerX, topY, partDef, outlined, alpha, fuelState) {
+    drawPart(ctx, partType, centerX, topY, partDef, partStage, outlined, alpha, fuelState) {
       ctx.save();
       ctx.globalAlpha = alpha;
+      const stage = this.normalizeStage(partStage);
 
       if (partType === "fuel_tank") {
         ctx.fillStyle = "#f4f7fa";
@@ -423,7 +660,8 @@
         ctx.roundRect(centerX - partDef.width / 2, topY, partDef.width, partDef.height, 6);
         ctx.fill();
         ctx.stroke();
-        this.drawFuelWindow(ctx, centerX - 5, topY + 7, 10, partDef.height - 14, fuelState ? fuelState.mainRatio : 1);
+        const stageRatio = fuelState && fuelState.mainByStage ? fuelState.mainByStage[stage] : null;
+        this.drawFuelWindow(ctx, centerX - 5, topY + 7, 10, partDef.height - 14, stageRatio == null ? 1 : stageRatio);
       }
 
       if (partType === "engine") {
@@ -471,7 +709,11 @@
           topY + 6,
           5,
           partDef.height - 18,
-          fuelState ? fuelState.boosterRatio : 1
+          fuelState && fuelState.boosterByStage && fuelState.boosterByStage[stage] != null
+            ? fuelState.boosterByStage[stage]
+            : fuelState && fuelState.boosterRatio != null
+              ? fuelState.boosterRatio
+              : 1
         );
         ctx.fillStyle = "#88909d";
         ctx.beginPath();
@@ -481,6 +723,18 @@
         ctx.lineTo(centerX - 3, topY + partDef.height);
         ctx.closePath();
         ctx.fill();
+      }
+
+      if (partType === "stage_separator") {
+        ctx.fillStyle = "#c7ced8";
+        ctx.strokeStyle = outlined ? "#2f7ea1" : "#6e7784";
+        ctx.lineWidth = outlined ? 3 : 2;
+        ctx.beginPath();
+        ctx.roundRect(centerX - partDef.width / 2, topY + 1, partDef.width, partDef.height - 2, 3);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = "#6e7784";
+        ctx.fillRect(centerX - partDef.width / 2 + 3, topY + partDef.height / 2 - 1, partDef.width - 6, 2);
       }
 
       ctx.restore();

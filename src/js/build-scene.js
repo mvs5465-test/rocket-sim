@@ -70,10 +70,21 @@
       this.drawLaunchPad(ctx, width, height, state);
       this.drawExhaustParticles(ctx, state.exhaustParticles || []);
       if (state.mode === "flight" && state.vessel && (state.thrustActive || state.boosterActive)) {
-        this.drawEngineFlames(ctx, state.vessel, state.nozzles || [], state.thrustActive, state.boosterActive);
+        this.drawEngineFlames(
+          ctx,
+          state.vessel,
+          state.nozzles || [],
+          state.thrustActive,
+          state.boosterActive,
+          state.currentStage || 1
+        );
       }
       if (state.mode === "flight" && state.vessel) {
-        state.rocketStack.drawVessel(ctx, state.vessel.x, state.vessel.y, state.vessel.angle, fuelState);
+        state.rocketStack.drawVessel(ctx, state.vessel.x, state.vessel.y, state.vessel.angle, fuelState, {
+          includeBoosters: state.includeBoosters !== false,
+          minStage: state.minStage || 1,
+          excludedBoosterStages: state.excludedBoosterStages || []
+        });
       }
       this.drawClouds(ctx, true);
       ctx.restore();
@@ -299,8 +310,11 @@
       ctx.restore();
     }
 
-    drawEngineFlames(ctx, vessel, nozzles, mainActive, boosterActive) {
+    drawEngineFlames(ctx, vessel, nozzles, mainActive, boosterActive, currentStage) {
       for (const nozzle of nozzles) {
+        if (nozzle.stage != null && nozzle.stage !== currentStage) {
+          continue;
+        }
         if (nozzle.kind === "main" && !mainActive) {
           continue;
         }

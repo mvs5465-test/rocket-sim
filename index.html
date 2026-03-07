@@ -170,6 +170,34 @@
         cursor: pointer;
       }
 
+      .stage-row {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 8px;
+        align-items: center;
+        margin: 0 0 10px;
+      }
+
+      .stage-button {
+        border: 1px solid var(--border-ui);
+        border-radius: 6px;
+        background: #f0f4f8;
+        color: #314258;
+        font-size: 14px;
+        font-weight: 700;
+        width: 28px;
+        height: 26px;
+        cursor: pointer;
+      }
+
+      .stage-label {
+        margin: 0;
+        text-align: center;
+        font-size: 12px;
+        color: var(--text-main);
+        font-weight: 700;
+      }
+
       .delete-button:disabled {
         opacity: 0.5;
         cursor: not-allowed;
@@ -220,6 +248,7 @@
           <div class="parts-list">
             <button class="part-button" data-part="engine">Engine</button>
             <button class="part-button" data-part="fuel_tank">Fuel Tank</button>
+            <button class="part-button" data-part="stage_separator">Stage Separator</button>
             <button class="part-button" data-part="nosecone">Nosecone</button>
             <button class="part-button" data-part="booster">Booster</button>
           </div>
@@ -243,12 +272,19 @@
         <p id="hud-mass">Mass: 0 t</p>
         <p id="hud-gravity">Gravity: 0 m/s²</p>
         <p id="hud-twr">TWR: 0.00</p>
-        <p>Controls: Hold <strong>Space</strong> to fire, steer with <strong>A/D</strong>.</p>
+        <p id="hud-stage">Stage: 1</p>
+        <p id="hud-status">Status: Flying</p>
+        <p>Controls: Hold <strong>Space</strong> to fire, steer with <strong>A/D</strong>, press <strong>E</strong> to stage.</p>
       </aside>
     </div>
     <div id="part-tooltip" class="part-tooltip hidden" role="dialog" aria-label="Part details">
       <h2 id="tooltip-title"></h2>
       <p id="tooltip-meta" class="tooltip-meta"></p>
+      <div id="tooltip-stage-row" class="stage-row">
+        <button id="stage-down-button" class="stage-button" aria-label="Decrease stage">-</button>
+        <p id="tooltip-stage" class="stage-label">Stage: 1</p>
+        <button id="stage-up-button" class="stage-button" aria-label="Increase stage">+</button>
+      </div>
       <button id="delete-part-button" class="delete-button">Delete Part</button>
     </div>
     <script src="./src/js/constants.js" defer></script>

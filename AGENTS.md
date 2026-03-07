@@ -72,4 +72,9 @@
   - contextual part tooltip with guarded delete
   - only valid snap-node visibility during placement
   - spacebar can switch from build to flight and also throttle in flight
+  - `E` activates the next staging event in flight
+  - stage assignment controls in tooltip are only for engines/boosters; other parts auto-stage by separator boundaries
+  - staging event model: booster jettison and core separation are distinct events
+  - fuel is compartmented by stage separators (no cross-separator flow by default)
   - camera follows horizontally; vertical follow starts after rocket reaches viewport midpoint
+  - default seeded rocket is a two-stage stack with lower-stage side boosters and an upper-stage engine+tank+nosecone

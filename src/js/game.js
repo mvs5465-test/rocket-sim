@@ -41,6 +41,10 @@
       this.tooltipEl = document.querySelector("#part-tooltip");
       this.tooltipTitleEl = document.querySelector("#tooltip-title");
       this.tooltipMetaEl = document.querySelector("#tooltip-meta");
+      this.tooltipStageRowEl = document.querySelector("#tooltip-stage-row");
+      this.tooltipStageEl = document.querySelector("#tooltip-stage");
+      this.stageDownButtonEl = document.querySelector("#stage-down-button");
+      this.stageUpButtonEl = document.querySelector("#stage-up-button");
       this.deleteButtonEl = document.querySelector("#delete-part-button");
       this.launchButtonEl = document.querySelector("#launch-button");
       this.recoverButtonEl = document.querySelector("#recover-button");
@@ -53,6 +57,8 @@
       this.hudMassEl = document.querySelector("#hud-mass");
       this.hudGravityEl = document.querySelector("#hud-gravity");
       this.hudTwrEl = document.querySelector("#hud-twr");
+      this.hudStageEl = document.querySelector("#hud-stage");
+      this.hudStatusEl = document.querySelector("#hud-status");
 
       this.bindEvents();
       this.seedStarterRocket();
@@ -184,6 +190,12 @@
           return;
         }
 
+        if (this.mode === "flight" && event.code === "KeyE" && !event.repeat) {
+          event.preventDefault();
+          this.activateStage();
+          return;
+        }
+
         if (event.code in this.keyState) {
           this.keyState[event.code] = true;
           if (event.code === "Space") {
@@ -224,6 +236,20 @@
         event.stopPropagation();
         this.tryDeleteSelectedPart();
       });
+
+      if (this.stageDownButtonEl) {
+        this.stageDownButtonEl.addEventListener("click", (event) => {
+          event.stopPropagation();
+          this.shiftSelectedPartStage(-1);
+        });
+      }
+
+      if (this.stageUpButtonEl) {
+        this.stageUpButtonEl.addEventListener("click", (event) => {
+          event.stopPropagation();
+          this.shiftSelectedPartStage(1);
+        });
+      }
 
       this.launchButtonEl.addEventListener("click", () => {
         this.launch();
@@ -340,6 +366,7 @@
       const partDef = PART_DEFS[partRect.type];
       this.tooltipTitleEl.textContent = partDef.label;
       this.tooltipMetaEl.textContent = `${partDef.info}  Mass: ${partDef.mass.toFixed(1)}t`;
+      this.updateTooltipStageUi();
       const canDelete = this.rocketStack.canDeletePart(this.selectedPartRef);
       this.deleteButtonEl.disabled = !canDelete;
       const canvasRect = this.renderer.canvas.getBoundingClientRect();
@@ -355,27 +382,60 @@
       this.tooltipEl.classList.add("hidden");
     }
 
+    shiftSelectedPartStage(delta) {
+      if (this.mode !== "build" || !this.selectedPartRef) {
+        return;
+      }
+      const current = this.rocketStack.getPartStage(this.selectedPartRef);
+      const changed = this.rocketStack.setPartStage(this.selectedPartRef, current + delta);
+      if (!changed) {
+        return;
+      }
+      this.updateTooltipStageUi();
+      this.partsPalette.setStatus(`Assigned to stage ${this.rocketStack.getPartStage(this.selectedPartRef)}.`);
+    }
+
+    updateTooltipStageUi() {
+      if (!this.selectedPartRef || !this.tooltipStageEl) {
+        return;
+      }
+      const configurable = this.rocketStack.isStageConfigurable(this.selectedPartRef);
+      if (this.tooltipStageRowEl) {
+        this.tooltipStageRowEl.classList.toggle("hidden", !configurable);
+      }
+      if (!configurable) {
+        return;
+      }
+      const stage = this.rocketStack.getPartStage(this.selectedPartRef);
+      this.tooltipStageEl.textContent = `Stage: ${stage}`;
+      if (this.stageDownButtonEl) {
+        this.stageDownButtonEl.disabled = stage <= 1;
+      }
+      if (this.stageUpButtonEl) {
+        this.stageUpButtonEl.disabled = stage >= 9;
+      }
+    }
+
     launch() {
       if (this.mode !== "build") {
         return;
       }
       if (!this.rocketStack.isLaunchReady()) {
-        this.partsPalette.setStatus("Launch requires at least one engine.");
+        this.partsPalette.setStatus("Launch requires a valid stack. Finish any open stage.");
         return;
       }
 
       const anchor = this.getBuildAnchor();
-      const fuelCapacity = this.rocketStack.getFuelCapacity();
       const dryMass = this.rocketStack.getDryMass();
-      const boosterCount = this.rocketStack.countPart("booster");
-      const mainEngineCount = this.rocketStack.countPart("engine");
+      const flightSetup = this.rocketStack.getFlightSetup();
       this.vessel = FlightModel.createVessel({
         x: anchor.x,
         y: anchor.y,
-        fuelCapacity,
         dryMass,
-        mainEngineCount,
-        boosterCount,
+        mainEngines: flightSetup.mainEngines,
+        fuelCompartments: flightSetup.fuelCompartments,
+        boosterUnits: flightSetup.boosterUnits,
+        coreStageMasses: flightSetup.coreStageMasses,
         config: this.flightConfig
       });
       this.nozzles = this.rocketStack.getEngineNozzles();
@@ -386,7 +446,7 @@
       this.closeTooltip();
       this.partsPalette.clearSelection();
       this.partsPalette.setEnabled(false);
-      this.partsPalette.setStatus("Flight mode: hold Space to fire, steer with A/D.");
+      this.partsPalette.setStatus("Flight mode: hold Space to fire, steer with A/D, press E to stage.");
       this.thrustActive = false;
       this.boosterActive = false;
       this.exhaustParticles = [];
@@ -421,8 +481,9 @@
       const groundY = this.scene.worldGroundY != null ? this.scene.worldGroundY : this.renderer.height - 34;
       const altitudeNow = Math.max(0, groundY - v.y);
       const isGroundedBefore = v.y >= groundY - 2.5;
-      this.thrustActive = Boolean(this.keyState.Space && v.fuel > 0 && v.mainThrust > 0);
-      this.boosterActive = Boolean(this.keyState.Space && v.boosterFuel > 0 && v.boosterThrust > 0);
+      const canPropel = v.flightState !== "crashed";
+      this.thrustActive = Boolean(canPropel && this.keyState.Space && v.mainThrust > 0);
+      this.boosterActive = Boolean(canPropel && this.keyState.Space && v.boosterThrust > 0);
 
       if (this.thrustActive || this.boosterActive) {
         this.spawnExhaust(v, this.nozzles, deltaSeconds);
@@ -439,8 +500,9 @@
       FlightModel.stepVessel(v, this.keyState, deltaSeconds, { groundY, altitude: altitudeNow }, this.flightConfig);
       this.updateParticles(deltaSeconds, groundY);
 
-      // Always follow horizontally.
-      const camera = CameraModel.computeFlightCamera(this.flightCameraBase, v, {
+      // Follow vessel COM instead of stack base so post-separation framing/pivot feels correct.
+      const cameraTarget = this.getCameraTargetForVessel(v);
+      const camera = CameraModel.computeFlightCamera(this.flightCameraBase, cameraTarget, {
         width: this.renderer.width,
         height: this.renderer.height
       });
@@ -448,6 +510,39 @@
       this.camera.y = camera.y;
 
       this.updateFlightHud();
+    }
+
+    getCameraTargetForVessel(vessel) {
+      const stageHeightPixels = 78;
+      const centerOfMassY = typeof vessel.centerOfMassY === "number" ? vessel.centerOfMassY : 1;
+      const maxOffset = 240;
+      const offsetY = Math.max(0, Math.min(maxOffset, (centerOfMassY - 1) * stageHeightPixels));
+      const comOffsetX = Math.sin(vessel.angle) * offsetY;
+      const comOffsetY = -Math.cos(vessel.angle) * offsetY;
+      return {
+        x: vessel.x + comOffsetX,
+        y: vessel.y + comOffsetY
+      };
+    }
+
+    activateStage() {
+      if (this.mode !== "flight" || !this.vessel) {
+        return;
+      }
+      if (this.vessel.flightState === "crashed") {
+        this.partsPalette.setStatus("Cannot stage after crash.");
+        return;
+      }
+      const eventResult = FlightModel.activateNextStage(this.vessel);
+      if (!eventResult.ok) {
+        this.partsPalette.setStatus("No remaining stage.");
+        return;
+      }
+      if (eventResult.type === "jettison_boosters") {
+        this.partsPalette.setStatus(`Booster separation: stage ${eventResult.stage}.`);
+      } else {
+        this.partsPalette.setStatus(`Activated stage ${this.vessel.currentStage}.`);
+      }
     }
 
     updateFlightHud() {
@@ -462,6 +557,12 @@
       const gravity = this.vessel.currentGravity || this.flightConfig.gravity;
       const availableThrust = FlightModel.getAvailableThrust(this.vessel);
       const twr = gravity > 0 ? availableThrust / (mass * gravity) : 0;
+      const statusLabel =
+        this.vessel.flightState === "crashed"
+          ? "Crashed"
+          : this.vessel.flightState === "landed"
+            ? "Landed"
+            : "Flying";
       this.hudAltitudeEl.textContent = `Altitude: ${altitude.toFixed(1)} m`;
       this.hudSpeedEl.textContent = `Speed: ${speed.toFixed(1)} m/s`;
       if (this.vessel.boosterCount > 0) {
@@ -472,16 +573,44 @@
       this.hudMassEl.textContent = `Mass: ${mass.toFixed(2)} t`;
       this.hudGravityEl.textContent = `Gravity: ${gravity.toFixed(2)} m/s²`;
       this.hudTwrEl.textContent = `TWR: ${twr.toFixed(2)}`;
+      if (this.hudStageEl) {
+        this.hudStageEl.textContent = `Stage: ${this.vessel.currentStage}`;
+      }
+      if (this.hudStatusEl) {
+        this.hudStatusEl.textContent = `Status: ${statusLabel}`;
+      }
     }
 
     seedStarterRocket() {
       if (this.rocketStack.coreParts.length > 0 || this.rocketStack.boosters.length > 0) {
         return;
       }
-      this.rocketStack.placePartOnTarget("engine", { kind: "core" });
-      this.rocketStack.placePartOnTarget("fuel_tank", { kind: "core" });
-      this.rocketStack.placePartOnTarget("nosecone", { kind: "core" });
-      this.partsPalette.setStatus("Starter rocket loaded. Add parts or launch.");
+      const anchorX = 0;
+      const anchorY = 0;
+      const placeCorePart = (partType) => {
+        const target = this.rocketStack.getSnapTargets(anchorX, anchorY, partType)[0];
+        return target ? this.rocketStack.placePartOnTarget(partType, target) : false;
+      };
+      const placeBoosterOn = (coreIndex, side) => {
+        const targets = this.rocketStack.getSnapTargets(anchorX, anchorY, "booster");
+        const target = targets.find((t) => t.coreIndex === coreIndex && t.side === side);
+        return target ? this.rocketStack.placePartOnTarget("booster", target) : false;
+      };
+
+      // Bottom stage: engine + dual tanks + side boosters.
+      placeCorePart("engine");
+      placeCorePart("fuel_tank");
+      placeCorePart("fuel_tank");
+      placeBoosterOn(1, "left");
+      placeBoosterOn(1, "right");
+
+      // Upper stage: separator + upper engine + tank + nosecone.
+      placeCorePart("stage_separator");
+      placeCorePart("engine");
+      placeCorePart("fuel_tank");
+      placeCorePart("nosecone");
+
+      this.partsPalette.setStatus("Two-stage starter rocket loaded. Press E in flight to stage.");
     }
 
     spawnExhaust(vessel, nozzles, deltaSeconds) {
@@ -496,6 +625,9 @@
       while (this.particleSpawnCarry >= intervalSeconds) {
         this.particleSpawnCarry -= intervalSeconds;
         for (const nozzle of nozzles) {
+          if (nozzle.stage != null && nozzle.stage !== vessel.currentStage) {
+            continue;
+          }
           const isMain = nozzle.kind === "main";
           if (isMain && !this.thrustActive) {
             continue;
@@ -593,20 +725,50 @@
         thrustActive: this.thrustActive,
         boosterActive: this.boosterActive,
         exhaustParticles: this.exhaustParticles,
-        nozzles: this.nozzles
+        nozzles: this.nozzles,
+        includeBoosters: !this.vessel || this.vessel.boosterAttached,
+        currentStage: this.vessel ? this.vessel.currentStage : 1,
+        minStage: this.vessel ? this.vessel.currentStage : 1,
+        excludedBoosterStages: this.vessel ? this.vessel.detachedBoosterStages : []
       });
     }
 
     getFuelState() {
       if (!this.vessel) {
-        return { mainRatio: 1, boosterRatio: 1 };
+        return { mainRatio: 1, boosterRatio: 1, mainByStage: {}, boosterByStage: {} };
       }
       const mainRatio = this.vessel.fuelCapacity > 0 ? this.vessel.fuel / this.vessel.fuelCapacity : 0;
       const boosterCapacity = this.vessel.boosterCount * this.flightConfig.boosterFuelPerBooster;
       const boosterRatio = boosterCapacity > 0 ? this.vessel.boosterFuel / boosterCapacity : 0;
+      const mainByStage = {};
+      if (Array.isArray(this.vessel.fuelCompartments)) {
+        for (let i = 0; i < this.vessel.fuelCompartments.length; i += 1) {
+          const c = this.vessel.fuelCompartments[i];
+          const stage = i + 1;
+          mainByStage[stage] = c && c.capacity > 0 ? Math.max(0, Math.min(1, c.fuel / c.capacity)) : 0;
+        }
+      }
+      const boosterByStage = {};
+      if (Array.isArray(this.vessel.boosterUnits)) {
+        const grouped = {};
+        for (const unit of this.vessel.boosterUnits) {
+          const stage = unit.stage || 1;
+          if (!grouped[stage]) {
+            grouped[stage] = { fuel: 0, capacity: 0 };
+          }
+          grouped[stage].fuel += Math.max(0, unit.fuel || 0);
+          grouped[stage].capacity += this.flightConfig.boosterFuelPerBooster;
+        }
+        for (const key of Object.keys(grouped)) {
+          const group = grouped[key];
+          boosterByStage[key] = group.capacity > 0 ? Math.max(0, Math.min(1, group.fuel / group.capacity)) : 0;
+        }
+      }
       return {
         mainRatio: Math.max(0, Math.min(1, mainRatio)),
-        boosterRatio: Math.max(0, Math.min(1, boosterRatio))
+        boosterRatio: Math.max(0, Math.min(1, boosterRatio)),
+        mainByStage,
+        boosterByStage
       };
     }
   }
