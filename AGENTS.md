@@ -2,7 +2,7 @@
 
 ## Project Identity
 - Project name: `rocket-sim`
-- Public repo: `https://github.com/mvs5465/rocket-sim`
+- Public repo: `https://github.com/mvs5465-test/rocket-sim`
 - Live site (GitHub Pages): `https://mvs5465.github.io/rocket-sim/`
 
 ## Product Direction
