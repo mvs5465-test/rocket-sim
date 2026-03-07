@@ -1,5 +1,7 @@
 # Rocket Sim
 
+Live demo: https://mvs5465.github.io/rocket-sim/
+
 Static browser starter for a side-on rocket builder in plain HTML/CSS/JS.
 
 ## Current scope
